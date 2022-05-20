@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.4.22 <0.9.0;
 
-import "./ERC721.sol";
+import "./NFT.sol";
 
 /*
 Before operating the lottery, the lottery manager buys a batch of collectibles,
@@ -10,17 +10,23 @@ A new round may only be opened by the lottery operator.
 Opening a new round is allowed the first time, when the contract has 
 been deployed, or when a previous round is finished.
 */
-contract Lottery is ERC721 {
+contract Lottery {
     address public manager;
+    uint public roundDuration;
+    uint public startBlockNumber;
+    uint constant ACTIVE = 1;
+    uint constant FINISHED = 0;
+    uint public roundStatus = FINISHED;
+    NFT public nft;
 
     // an user buys a set of tickets and picks six numbers per ticket. The
     // first five numbers are standard numbers from 1- 69, and the sixth number is a
     // special Powerball number from 1 - 26 that offers extra rewards.
     // Each ticket has a fixed price.
     struct Ticket {
+        uint256 id;
         uint256[5] numbers;
         uint256 powerball;
-        uint256 price;
         address owner;
     }
 
@@ -28,7 +34,6 @@ contract Lottery is ERC721 {
     // The collectibles are divided into eight classes (not eleven), each class corresponding to the matches of numbers in a draw.
     // The assignment of the collectibles to the classes is random
     struct Collectible {
-        uint256 rank;
         string image;
         uint256 class;
     }
@@ -36,60 +41,66 @@ contract Lottery is ERC721 {
     // Array of collectibles 
     Collectible[] collectibles;
 
-    // tokenId - owner of the token 
-    mapping(uint => address) collectibleOwners;
+    // Mapping between the id of the ticket and the owner of the ticket
+    mapping(uint256 => address) ticketsOwners;
 
-    // owner of the token - number of nfts owned by the owner
-    mapping(address => uint) collectibleBalances;
+    // Mapping between the id of the ticket and the ticket
+    mapping(uint256 => Ticket) tickets;
 
-    // delegate someone else to send the nft
-    mapping(uint => address) collectibleApproved;
-
-    // array of tickets
-    Ticket[] tickets;
-
-    constructor() {
+    /// @notice msg.sender is the owner of the contract
+    /// @param _startBlockNumber The block number when the contract starts.
+    /// @param _roundDuration The duration of the round in block numbers.
+    constructor(address _t, uint _roundDuration, uint _startBlockNumber) {
         manager = msg.sender;
+        nft = NFT(_t);
+        roundDuration = _roundDuration;
+        startBlockNumber = _startBlockNumber;
     }
 
-    function mint(uint256 _rank, string memory _image, uint256 _class) public {
+    
+    /// @notice The lottery operator can open a new round.
+    /// The lottery operator can only open a new round if the previous round is finished.
+    /// @dev Throws unless `msg.sender` is the current owner or the lottery is not finished
+    function openRound() public {
         require(msg.sender == manager);
-        require(_rank > 0);
-        require(_class > 0);
-        require(_class <= 8);
-        collectibles.push(Collectible(_rank, _image, _class));
+        require(roundStatus == FINISHED, "Previous round is not finished");
+        roundStatus = ACTIVE;
+    }
+
+
+    /// @notice The lottery operator can mint new token.
+    /// @dev Throws unless `msg.sender` is the current owner or the class (rank) is not valid
+    function mint(string memory _image, uint256 _class) public {
+        require(msg.sender == manager);
+        require(_class >= 1 && _class <= 8);
+        collectibles.push(Collectible(_image, _class));
         // id of the collectible is the index of the collectible in the array
-        uint id = collectibles.length - 1;
-        collectibleOwners[id] = msg.sender;
-        collectibleBalances[msg.sender]++;
+        uint256 id = collectibles.length;
+        nft.mint(id);
     }
 
-    function ownerOf(uint256 _tokenId) public override view returns (address) {
-        return collectibleOwners[_tokenId];
+    /// @notice The user can buy a ticket.
+    /// @dev Throws unless `one`, `two`, `three`, `four`, `five`, `six` are valid numbers
+    /// @dev Throws unless `msg.sender` has enough ether to buy the ticket
+    /// @dev Throws unless `ticket` is unique
+    function buy(uint256 one, uint256 two, uint256 three, uint256 four, uint256 five, uint256 six) public payable {
+        require(roundStatus == ACTIVE, "Round is not active");
+        require(msg.value >= 1, "You need to send at least 1 wei");
+        require(one >= 1 && one <= 69, "Invalid number");
+        require(two >= 1 && two <= 69, "Invalid number");
+        require(three >= 1 && three <= 69, "Invalid number");
+        require(four >= 1 && four <= 69, "Invalid number");
+        require(five >= 1 && five <= 69, "Invalid number");
+        require(six >= 1 && six <= 26, "Invalid number");
+        uint256 id = one + two + three + four + five + six;
+        require(ticketsOwners[id] == address(0), "Ticket already bought");
+        ticketsOwners[id] = msg.sender;
+        tickets[id] = Ticket({
+            id: id,
+            numbers: [one, two, three, four, five],
+            powerball: six,
+            owner: msg.sender
+        });
     }
-
-    function balanceOf(address _owner) public override view returns (uint256) {
-        return collectibleBalances[_owner];
-    }
-
-    function transferFrom(address _from, address _to, uint256 _tokenId) external override payable {
-        //require(msg.sender == manager);
-        require(_from == msg.sender || _from == collectibleApproved[_tokenId]);
-        require(_to != _from);
-        require(_tokenId > 0);
-        require(_tokenId <= collectibles.length);
-        require(collectibleOwners[_tokenId] == _from);
-        require(collectibleBalances[_from] > 0);
-        collectibleOwners[_tokenId] = _to;
-        collectibleBalances[_from]--;
-        collectibleBalances[_to]++;
-    }
-
-      function approve(address _approved, uint256 _tokenId) external override payable {
-        require(msg.sender == collectibleOwners[_tokenId]);
-        require(_tokenId > 0);
-        require(_tokenId <= collectibles.length);
-        collectibleApproved[_tokenId] = _approved;
-      }
 
 }
