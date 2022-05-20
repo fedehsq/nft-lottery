@@ -32,6 +32,9 @@ contract CollectibleNFT is ERC721 {
     // delegate someone else to send the nft
     mapping(uint256 => address) collectibleApproved;
 
+    // owner of the token - addresses that are approved to send the nft
+    mapping(address => mapping(address => bool)) collectibleApprovedForAll;
+
     function addCollectible(
         uint256 _rank,
         string memory _image,
@@ -42,7 +45,7 @@ contract CollectibleNFT is ERC721 {
         require(_class <= 8);
         collectibles.push(Collectible(_rank, _image, _class));
         // id of the collectible is the index of the collectible in the array
-        uint256 id = collectibles.length - 1;
+        uint256 id = collectibles.length;
         collectibleOwners[id] = msg.sender;
         collectibleBalances[msg.sender]++;
     }
@@ -61,7 +64,14 @@ contract CollectibleNFT is ERC721 {
         uint256 _tokenId
     ) external payable override {
         //require(msg.sender == manager);
-        require(_from == msg.sender || _from == collectibleApproved[_tokenId]);
+        require(
+            // owner
+            _from == msg.sender || 
+            // approved
+            _from == collectibleApproved[_tokenId] ||
+            // approved for all (operator)
+           collectibleApprovedForAll[collectibleOwners[_tokenId]][_from]
+            );
         require(_to != _from);
         require(_tokenId > 0);
         require(_tokenId <= collectibles.length);
@@ -78,15 +88,47 @@ contract CollectibleNFT is ERC721 {
         payable
         override
     {
-        require(msg.sender == collectibleOwners[_tokenId]);
+        // check if the approve is call by the owner of the token or by operator
+        require(
+            msg.sender == collectibleOwners[_tokenId] ||
+                collectibleApprovedForAll[collectibleOwners[_tokenId]][
+                    msg.sender
+                ], "Only the owner or operator can approve"
+        );
         require(_tokenId > 0);
         require(_tokenId <= collectibles.length);
         collectibleApproved[_tokenId] = _approved;
         emit Approval(msg.sender, _approved, _tokenId);
     }
 
-    function getApproved(uint _tokenId) public view override returns (address) {
-        require(_tokenId > 0 && _tokenId <= collectibles.length, "tokenId is not valid");
+    function getApproved(uint256 _tokenId)
+        public
+        view
+        override
+        returns (address)
+    {
+        require(
+            _tokenId > 0 && _tokenId <= collectibles.length,
+            "tokenId is not valid"
+        );
         return collectibleApproved[_tokenId];
+    }
+
+    function setApprovalForAll(address _operator, bool _approved)
+        external
+        override
+    {
+        collectibleApprovedForAll[msg.sender][_operator] = _approved;
+        emit ApprovalForAll(msg.sender, _operator, _approved);
+    }
+
+    function isApprovedForAll(address _owner, address _operator)
+        external
+        view
+        virtual
+        override
+        returns (bool)
+    {
+        return collectibleApprovedForAll[_owner][_operator];
     }
 }
