@@ -13,10 +13,11 @@ been deployed, or when a previous round is finished.
 contract Lottery {
     address public manager;
     uint public roundDuration;
-    uint public startBlockNumber;
-    uint constant ACTIVE = 1;
-    uint constant FINISHED = 0;
-    uint public roundStatus = FINISHED;
+    //uint public roundStatus = FINISHED;
+    uint public startingBlock;
+    //uint public constant ACTIVE = 1;
+    //uint public constant FINISHED = 0;
+    uint public constant TICKET_PRICE = 1 gwei;
     NFT public nft;
 
     // an user buys a set of tickets and picks six numbers per ticket. The
@@ -48,13 +49,13 @@ contract Lottery {
     mapping(uint256 => Ticket) tickets;
 
     /// @notice msg.sender is the owner of the contract
-    /// @param _startBlockNumber The block number when the contract starts.
+    /// @param _startingBlock The block number when the contract starts.
     /// @param _roundDuration The duration of the round in block numbers.
-    constructor(address _t, uint _roundDuration, uint _startBlockNumber) {
+    constructor(address _t, uint _roundDuration, uint _startingBlock) {
         manager = msg.sender;
         nft = NFT(_t);
         roundDuration = _roundDuration;
-        startBlockNumber = _startBlockNumber;
+        startingBlock = _startingBlock;
     }
 
     
@@ -63,8 +64,8 @@ contract Lottery {
     /// @dev Throws unless `msg.sender` is the current owner or the lottery is not finished
     function openRound() public {
         require(msg.sender == manager);
-        require(roundStatus == FINISHED, "Previous round is not finished");
-        roundStatus = ACTIVE;
+        require(!isActive(), "Previous round is not finished");
+        startingBlock = block.number;
     }
 
 
@@ -84,8 +85,8 @@ contract Lottery {
     /// @dev Throws unless `msg.sender` has enough ether to buy the ticket
     /// @dev Throws unless `ticket` is unique
     function buy(uint256 one, uint256 two, uint256 three, uint256 four, uint256 five, uint256 six) public payable {
-        require(roundStatus == ACTIVE, "Round is not active");
-        require(msg.value >= 1, "You need to send at least 1 wei");
+        require(isActive(), "Round is not active");
+        require(msg.value == TICKET_PRICE, "You need to send at least 1 wei");
         require(one >= 1 && one <= 69, "Invalid number");
         require(two >= 1 && two <= 69, "Invalid number");
         require(three >= 1 && three <= 69, "Invalid number");
@@ -95,12 +96,17 @@ contract Lottery {
         uint256 id = one + two + three + four + five + six;
         require(ticketsOwners[id] == address(0), "Ticket already bought");
         ticketsOwners[id] = msg.sender;
-        tickets[id] = Ticket({
-            id: id,
-            numbers: [one, two, three, four, five],
-            powerball: six,
-            owner: msg.sender
-        });
+        tickets[id] = Ticket(
+            id,
+            [one, two, three, four, five],
+            six,
+            msg.sender
+        );
+        payable(address(this)).transfer(TICKET_PRICE);
+    }
+
+    function isActive() public view returns (bool) {
+        return block.number - startingBlock % roundDuration != 0;
     }
 
 }
