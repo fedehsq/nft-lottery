@@ -13,12 +13,16 @@ contract NFT is ERC721 {
     // delegate someone else to send the nft
     mapping(uint256 => address) approved;
 
+    // collectible image associated to the token
+    mapping(uint256 => string) attributes;
+
     // owner of the token - addresses that are approved to send the nft
     mapping(address => mapping(address => bool)) approvedForAll;
 
-    function mint(uint256 _tokenId) public {
+    function mint(uint256 _tokenId, string memory _collectible) public {
         require(owners[_tokenId] == address(0));
         owners[_tokenId] = msg.sender;
+        attributes[_tokenId] = _collectible; 
         balances[msg.sender]++;
     }
 
