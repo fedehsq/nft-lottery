@@ -15,8 +15,9 @@ contract Lottery {
     address[] public winners;
     uint256 public roundDuration;
     uint256 public startingBlock;
-    bool public firstRound = true;
-    bool prizeAssigned = false;
+    bool public firstRound;
+    bool public prizeAssigned;
+    bool public lotteryActive;
     uint256 public constant TICKET_PRICE = 1 gwei;
     NFT public nft;
 
@@ -50,29 +51,29 @@ contract Lottery {
     Ticket winningTicket;
 
     /// @notice msg.sender is the owner of the contract
-    /// @param _startingBlock The block number when the contract starts.
     /// @param _roundDuration The duration of the round in block numbers.
     constructor(
         address _t,
-        uint256 _roundDuration,
-        uint256 _startingBlock
-    ) {
+        uint256 _roundDuration
+    ) payable {
         manager = msg.sender;
         nft = NFT(_t);
         roundDuration = _roundDuration;
-        startingBlock = _startingBlock;
+        firstRound = true;
+        prizeAssigned = false;
+        lotteryActive = true;
     }
 
     /// @notice The lottery operator can open a new round.
     /// The lottery operator can only open a new round if the previous round is finished.
     /// @dev Throws unless `msg.sender` is the current owner or the lottery is not finished
+    /// @dev Throws unless the lottery is active
     function openRound() public {
         require(msg.sender == manager);
+        require(lotteryActive, "Lottery is not active");
         // Check if the contract is just deployed
         if (!firstRound) {
             require(!isRoundActive(), "Previous round is not finished");
-            require(winningTicket.id != 0, "Winning ticket not yet drawn");
-            require(prizeAssigned, "The prizes have not been assigned");
             prizeAssigned = false;
             delete tickets;
             delete winningTicket;
@@ -89,21 +90,27 @@ contract Lottery {
     }
 
     /// @notice The lottery operator can close the contract.
-    /// The lottery operator can only close the contract if the previous round is finished.
+    /// If the round is active, refunds the users who bought tickets.
     /// @dev Throws unless `msg.sender` is the current owner or the lottery is not finished
+    /// @dev Throws unless the lottery is active
     function closeLottery() public {
         require(msg.sender == manager);
-        require(!isRoundActive(), "Previous round is not finished");
-        require(winningTicket.id != 0, "Winning ticket not yet drawn");
-        require(prizeAssigned, "The prizes have not been assigned");
-        manager = address(0);
+        require(lotteryActive, "Lottery is not active");
+        if (isRoundActive()) {
+            for (uint256 i = 0; i < tickets.length; i++) {
+                payable(tickets[i].owner).transfer(TICKET_PRICE);
+            }
+        }
+        lotteryActive = false;
     }
 
     /// @notice The lottery operator can mint new token.
     /// @dev Throws unless `msg.sender` is the current owner or the class (rank) is not valid
+    /// @dev Throws unless the lottery is active
     /// @param _image The image of the collectible
     function mint(string memory _image) public {
         require(msg.sender == manager);
+        require(lotteryActive, "Lottery is not active");
         uint8 class = uint8((generateRandomNumber() % 8) + 1);
         uint256 id = collectibles[class].length + 1;
         collectibles[class].push(Collectible(id, _image));
@@ -115,6 +122,7 @@ contract Lottery {
     /// @dev Throws unless `one`, `two`, `three`, `four`, `five`, `six` are valid numbers
     /// @dev Throws unless `msg.sender` has enough ether to buy the ticket
     /// @dev Throws unless `ticket` is unique
+    /// @dev Throws unless the lottery is active
     /// @param _one The first number of the ticket
     /// @param _two The second number of the ticket
     /// @param _three The third number of the ticket
@@ -130,6 +138,7 @@ contract Lottery {
         uint8 _powerball
     ) public payable {
         require(isRoundActive(), "Round is not active");
+        require(lotteryActive, "Lottery is not active");
         require(msg.value == TICKET_PRICE, "You need to send at least 1 wei");
         require(_one >= 1 && _one <= 69, "Invalid number");
         require(_two >= 1 && _two <= 69, "Invalid number");
@@ -151,9 +160,16 @@ contract Lottery {
     }
 
     /// @notice Check if the round is active.
+    /// The round is active if:
+    ///     1. The current block number minus startingBlock % roundDuration != 0.
+    ///     2. The winning ticket has not been drawn yet.
+    ///     3. The prizes have not been assigned.
     /// @return True if the round is active, false otherwise.
     function isRoundActive() public view returns (bool) {
-        return block.number - (startingBlock % roundDuration) != 0;
+        return
+            block.number - (startingBlock % roundDuration) != 0 &&
+            winningTicket.id == 0 &&
+            !prizeAssigned;
     }
 
     /// @notice Generate a random int starting from the block number.
@@ -172,14 +188,11 @@ contract Lottery {
     /// @dev Throws unless `msg.sender` is the lottery operator
     /// @dev Throws unless `winner` is not defined
     /// @dev Throws unless `winningTicket` is not defined
+    /// @dev Throws unless the lottery is active
     function drawNumbers() public {
         require(msg.sender == manager);
         require(!isRoundActive(), "Round is not yet finished");
-        require(!prizeAssigned, "The prizes have already been assigned");
-        require(
-            winningTicket.owner == address(0),
-            "Winning ticket already drawn"
-        );
+        require(lotteryActive, "Lottery is not active");
         uint8 one = uint8((generateRandomNumber() % 69) + 1);
         uint8 two = uint8((generateRandomNumber() % 69) + 1);
         uint8 three = uint8((generateRandomNumber() % 69) + 1);
@@ -199,11 +212,11 @@ contract Lottery {
     /// @dev Throws unless `msg.sender` is the lottery operator
     /// @dev Throws unless `winner` is not defined
     /// @dev Throws unless `winningTicket` is already drawn
+    /// @dev Throws unless the lottery is active
     function givePrizes() public {
         require(msg.sender == manager);
         require(!isRoundActive(), "Round is not yet finished");
-        require(!prizeAssigned, "The prizes have already been assigned");
-        require(winningTicket.id != 0, "Winning ticket not yet drawn");
+        require(lotteryActive, "Lottery is not active");
         for (uint256 i = 0; i < tickets.length; i++) {
             // Check how many numbers count the winning ticket numbers
             uint8 count = 0;
@@ -256,12 +269,14 @@ contract Lottery {
     /// @notice Get the class prize of the current lottery round based on the number of matching numbers
     /// @param _count The number of matching numbers
     /// @param _powerballMatch True if the powerball matches the winning ticket powerball, false otherwise
+    /// @dev Throws unless the lottery is active
     /// @return The class prize
     function getClassPrize(uint8 _count, bool _powerballMatch)
         public
-        pure
+        view
         returns (uint8)
     {
+        require(lotteryActive, "Lottery is not active");
         if (_count == 5) {
             if (_powerballMatch) {
                 return 1;

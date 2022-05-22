@@ -81,6 +81,14 @@ contract NFT is ERC721 {
         return approved[_tokenId];
     }
 
+    function getImage(uint256 _tokenId)
+        public
+        view
+        returns (string memory)
+    {
+        return attributes[_tokenId];
+    }
+
     function setApprovalForAll(address _operator, bool _approved)
         external
         override
