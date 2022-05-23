@@ -20,9 +20,9 @@ contract NFT is ERC721 {
     mapping(address => mapping(address => bool)) approvedForAll;
 
     function mint(uint256 _tokenId, string memory _collectible) public {
-        require(owners[_tokenId] == address(0));
+        require(owners[_tokenId] == address(0), "Token already minted");
         owners[_tokenId] = msg.sender;
-        attributes[_tokenId] = _collectible; 
+        attributes[_tokenId] = _collectible;
         balances[msg.sender]++;
     }
 
@@ -41,18 +41,16 @@ contract NFT is ERC721 {
     ) external payable override {
         //require(msg.sender == manager);
         require(
-            // owner
-            _from == msg.sender ||
+                // owner
+                (_from == msg.sender && owners[_tokenId] == msg.sender) ||
                 // approved
                 _from == approved[_tokenId] ||
                 // approved for all (operator)
-                approvedForAll[owners[_tokenId]][_from]
+                approvedForAll[owners[_tokenId]][_from], "Not authorized"
         );
-        require(_to != _from);
-        require(owners[_tokenId] == _from);
-        require(balances[_from] > 0);
+        require(_to != _from, "Cannot transfer to yourself");
         owners[_tokenId] = _to;
-        balances[_from]--;
+        balances[owners[_tokenId]]--;
         balances[_to]++;
         emit Transfer(_from, _to, _tokenId);
     }
@@ -81,11 +79,7 @@ contract NFT is ERC721 {
         return approved[_tokenId];
     }
 
-    function getImage(uint256 _tokenId)
-        public
-        view
-        returns (string memory)
-    {
+    function getImage(uint256 _tokenId) public view returns (string memory) {
         return attributes[_tokenId];
     }
 
