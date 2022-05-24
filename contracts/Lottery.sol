@@ -11,11 +11,46 @@ Opening a new round is allowed the first time, when the contract has
 been deployed, or when a previous round is finished.
 */
 contract Lottery {
+    /// Round is open
+    event RoundOpened(uint256 _startingBlock, uint256 _finalBlock);
+
+    /// Lottery is closed
+    event LotteryClosed();
+
+    /// Create a nft for a collectible
+    event TokenMinted(address _to, uint256 _tokenId, string _image);
+
+    /// User buys a ticket
+    event TicketBought(
+        address _buyer,
+        uint8 _one,
+        uint8 _two,
+        uint8 _three,
+        uint8 _four,
+        uint8 _five,
+        uint8 _powerball
+    );
+
+    /// Winning numbers are announced
+    event WinningNumbersDrawn(
+        uint8 _one,
+        uint8 _two,
+        uint8 _three,
+        uint8 _four,
+        uint8 _five,
+        uint8 _powerball
+    );
+
+    event PrizeAssigned(address _to, uint256 _tokenId);
+
+    event RoundFinished();
+
+
     address public manager;
-    address[] public winners;
 
     uint256 public roundDuration;
     uint256 public endRoundBlock;
+    uint256 public kParam;
 
     bool public lotteryActive;
     bool public numbersExtracted;
@@ -52,13 +87,15 @@ contract Lottery {
     /// @notice msg.sender is the owner of the contract
     /// @param _nftAddress address of the nft contract
     /// @param _roundDuration The duration of the round in block numbers.
-    constructor(address _nftAddress, uint256 _roundDuration) payable {
+    constructor(address _nftAddress, uint256 _roundDuration, uint256 _kParam) payable {
         manager = msg.sender;
         nft = NFT(_nftAddress);
         roundDuration = _roundDuration;
         lotteryActive = true;
         // Open the furst new round
         endRoundBlock = block.number + roundDuration;
+        kParam = _kParam;
+        emit RoundOpened(block.number, endRoundBlock);
     }
 
     /// @notice The lottery operator can open a new round.
@@ -80,6 +117,7 @@ contract Lottery {
         roundFinished = false;
         numbersExtracted = false;
         endRoundBlock = block.number + roundDuration;
+        emit RoundOpened(block.number, endRoundBlock);
     }
 
     /// @notice The lottery operator can close the contract.
@@ -98,6 +136,7 @@ contract Lottery {
             }
         }
         lotteryActive = false;
+        emit LotteryClosed();
     }
 
     /// @notice The lottery operator can mint new token.
@@ -115,6 +154,7 @@ contract Lottery {
         uint256 id = collectibles[class].length + 1;
         collectibles[class].push(Collectible(id, _image));
         nft.mint(id, _image);
+        emit TokenMinted(msg.sender, id, _image);
     }
 
     /// @notice The user can buy a ticket.
@@ -153,6 +193,15 @@ contract Lottery {
                 msg.sender
             )
         );
+        emit TicketBought(
+            msg.sender,
+            _one,
+            _two,
+            _three,
+            _four,
+            _five,
+            _powerball
+        );
     }
 
     /// @notice Check if the round is active.
@@ -164,8 +213,9 @@ contract Lottery {
 
     /// @notice Generate a random int starting from the block number.
     /// @return A random int.
-    function generateRandomNumber() public view returns (uint256) {
-        bytes32 bhash = blockhash(block.number + 1);
+    function generateRandomNumber() public returns (uint256) {
+        kParam = kParam + block.number;
+        bytes32 bhash = blockhash(endRoundBlock + kParam);
         bytes memory bytesArray = new bytes(32);
         for (uint256 i; i < 32; i++) {
             bytesArray[i] = bhash[i];
@@ -202,6 +252,7 @@ contract Lottery {
             address(0)
         );
         numbersExtracted = true;
+        emit WinningNumbersDrawn(one, two, three, four, five, six);
     }
 
     /// @notice Distribute the prizes of the current lottery round
@@ -217,6 +268,7 @@ contract Lottery {
         require(lotteryActive, "Lottery is not active");
         require(!isRoundActive(), "Round is not yet finished");
         require(numbersExtracted, "Won numbers are not drawn");
+        require(!roundFinished, "Round is already finished");
         for (uint256 i = 0; i < tickets.length; i++) {
             // Check how many numbers count the winning ticket numbers
             uint8 count = 0;
@@ -232,24 +284,29 @@ contract Lottery {
                     found = true;
                     powerballMatch = true;
                 }
-                if (found) {
-                    winners.push(tickets[i].owner);
-                    uint8 classPrize = getClassPrize(count, powerballMatch);
-                    uint256 collectibleIndex = generateRandomNumber() %
-                        collectibles[classPrize].length;
-                    nft.transferFrom(
-                        msg.sender,
-                        tickets[i].owner,
-                        collectibles[classPrize][collectibleIndex].id
-                    );
-                }
+            }
+            if (found) {
+                uint8 classPrize = getClassPrize(count, powerballMatch);
+                //uint256 collectibleIndex = generateRandomNumber() %
+                //    collectibles[classPrize].length;
+                //uint256 tokenId = collectibles[classPrize][collectibleIndex].id;
+                nft.transferFrom(
+                    address(this),
+                    tickets[i].owner,
+                    tokenId
+                );
+                emit PrizeAssigned(
+                    tickets[i].owner,
+                    tokenId
+                );
             }
         }
         roundFinished = true;
-        sendCoin();
+        //sendCoin();
+        emit RoundFinished();
     }
 
-    /// @notice Send the prize to one random winner if it exists otherwise send it to the a random user
+    /* @notice Send the prize to one random winner if it exists otherwise send it to the a random user
     function sendCoin() internal {
         if (winners.length > 0) {
             // Send the prize to one winner in a random way
@@ -264,7 +321,7 @@ contract Lottery {
                 tickets.length * TICKET_PRICE
             );
         }
-    }
+    } */
 
     /// @notice Get the class prize of the current lottery round based on the number of matching numbers
     /// @param _count The number of matching numbers
