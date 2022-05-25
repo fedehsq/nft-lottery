@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.4.22 <0.9.0;
+import "@openzeppelin/contracts/utils/Strings.sol";
+import "hardhat/console.sol";
 
 import "./NFT.sol";
 
@@ -41,16 +43,18 @@ contract Lottery {
         uint8 _powerball
     );
 
-    event PrizeAssigned(address _to, uint256 _tokenId);
+    event PrizeAssigned(address _to, uint256 _tokenId, string _image);
 
     event RoundFinished();
 
+    string public constant COLLECTIBLES_REPO =
+        "https://github.com/fedehsq/nft_lottery/master/collectibles/";
 
     address public manager;
-
     uint256 public roundDuration;
     uint256 public endRoundBlock;
-    uint256 public kParam;
+    uint256 public kParam = 0;
+    uint256 public tokenId = 0;
 
     bool public lotteryActive;
     bool public numbersExtracted;
@@ -59,19 +63,14 @@ contract Lottery {
     uint256 public constant TICKET_PRICE = 1 gwei;
     NFT public nft;
 
-    // an user buys a set of boughtTickets and picks six numbers per ticket. The
-    // first five numbers are standard numbers from 1- 69, and the sixth number is a
-    // special Powerball number from 1 - 26 that offers extra rewards.
-    // Each ticket has a fixed price.
+    // Ticket bought by the user
     struct Ticket {
         uint8[5] numbers;
         uint8 powerball;
         address owner;
     }
 
-    // batch of collectibles and mints a Non Fungible Token (NFT) for each of them and defines the value rank of that collectible.
-    // The collectibles are divided into eight classes (not eleven), each class corresponding to the matches of numbers in a draw.
-    // The assignment of the collectibles to the classes is random
+    // Collectible is represented by a tokenId and the related image url
     struct Collectible {
         uint256 id;
         string image;
@@ -87,14 +86,14 @@ contract Lottery {
     /// @notice msg.sender is the owner of the contract
     /// @param _nftAddress address of the nft contract
     /// @param _roundDuration The duration of the round in block numbers.
-    constructor(address _nftAddress, uint256 _roundDuration, uint256 _kParam) payable {
+    constructor(address _nftAddress, uint256 _roundDuration) payable {
+        require(_roundDuration < 1000, "Round duration must be less than 1000");
         manager = msg.sender;
         nft = NFT(_nftAddress);
         roundDuration = _roundDuration;
         lotteryActive = true;
         // Open the furst new round
         endRoundBlock = block.number + roundDuration;
-        kParam = _kParam;
         emit RoundOpened(block.number, endRoundBlock);
     }
 
@@ -140,10 +139,11 @@ contract Lottery {
     }
 
     /// @notice The lottery operator can mint new token.
+    /// The name of the image is the tokenId.
     /// @dev Throws unless `msg.sender` is the current owner or the class (rank) is not valid
     /// @dev Throws unless the lottery is active
-    /// @param _image The image of the collectible
-    function mint(string memory _image) public {
+    /// @dev Throws unless the number of collectibles is less than 8 or the number of tickets
+    function mint() public {
         require(
             msg.sender == manager,
             "Only the operator con do this operation"
@@ -151,10 +151,17 @@ contract Lottery {
         require(lotteryActive, "Lottery is not active");
         uint8 class = uint8((generateRandomNumber() % 8) + 1);
         // id of the collectible is the index of the collectible in the array
-        uint256 id = collectibles[class].length + 1;
-        collectibles[class].push(Collectible(id, _image));
-        nft.mint(id, _image);
-        emit TokenMinted(msg.sender, id, _image);
+        tokenId++;
+        string memory image = string(
+            abi.encodePacked(
+                COLLECTIBLES_REPO,
+                Strings.toString(tokenId),
+                ".svg"
+            )
+        );
+        collectibles[class].push(Collectible(tokenId, image));
+        nft.mint(tokenId, image);
+        emit TokenMinted(msg.sender, tokenId, image);
     }
 
     /// @notice The user can buy a ticket.
@@ -211,17 +218,16 @@ contract Lottery {
         return endRoundBlock >= block.number;
     }
 
-    /// @notice Generate a random int starting from the block number.
+    /// @notice Generate a random int.
     /// @return A random int.
     function generateRandomNumber() public returns (uint256) {
-        kParam = kParam + block.number;
-        bytes32 bhash = blockhash(endRoundBlock + kParam);
-        bytes memory bytesArray = new bytes(32);
-        for (uint256 i; i < 32; i++) {
-            bytesArray[i] = bhash[i];
-        }
-        bytes32 rand = keccak256(bytesArray);
-        return uint256(rand);
+        kParam++;
+        return
+            uint256(
+                keccak256(
+                    abi.encodePacked(block.timestamp, msg.sender, kParam++)
+                )
+            );
     }
 
     /// @notice Draw winning numbers of the current lottery round
@@ -272,38 +278,73 @@ contract Lottery {
         for (uint256 i = 0; i < tickets.length; i++) {
             // Check how many numbers count the winning ticket numbers
             uint8 count = 0;
-            bool found = false;
             bool powerballMatch = false;
             for (uint256 j = 0; j < 5; j++) {
-                if (tickets[i].numbers[j] == winningTicket.numbers[j]) {
-                    found = true;
+                if (
+                    binarySearch(tickets[i].numbers[j], 0, 5, winningTicket.numbers)
+                ) {
                     count++;
                 }
                 // Check if the powerball matches the winning ticket powerball
                 if (tickets[i].powerball == winningTicket.powerball) {
-                    found = true;
                     powerballMatch = true;
                 }
             }
-            if (found) {
+            if (count > 0 || powerballMatch) {
                 uint8 classPrize = getClassPrize(count, powerballMatch);
-                //uint256 collectibleIndex = generateRandomNumber() %
-                //    collectibles[classPrize].length;
-                //uint256 tokenId = collectibles[classPrize][collectibleIndex].id;
-                nft.transferFrom(
-                    address(this),
-                    tickets[i].owner,
-                    tokenId
-                );
-                emit PrizeAssigned(
-                    tickets[i].owner,
-                    tokenId
-                );
+                // if the class is empty, mint a new collectible for the winner
+                if (collectibles[classPrize].length == 0) {
+                    mint();
+                    nft.transferFrom(address(this), tickets[i].owner, tokenId);
+                    emit PrizeAssigned(
+                        tickets[i].owner,
+                        tokenId,
+                        string(
+                            abi.encodePacked(
+                                COLLECTIBLES_REPO,
+                                Strings.toString(tokenId),
+                                ".svg"
+                            )
+                        )
+                    );
+                } else {
+                    uint256 collectibleIndex = generateRandomNumber() %
+                        collectibles[classPrize].length;
+                    uint256 id = collectibles[classPrize][collectibleIndex].id;
+                    nft.transferFrom(address(this), tickets[i].owner, id);
+                    emit PrizeAssigned(
+                        tickets[i].owner,
+                        id,
+                        collectibles[classPrize][collectibleIndex].image
+                    );
+                }
             }
         }
         roundFinished = true;
         //sendCoin();
         emit RoundFinished();
+    }
+
+    /// @notice Binary search to find if a number is in an array of numbers
+    /// @param number The number to search for
+    /// @param numbers The array of numbers to search in
+    /// @return True if the number is in the array, false otherwise
+    function binarySearch(uint8 number, uint begin, uint end, uint8[5] memory numbers)
+        public
+        view
+        returns (bool)
+    {
+        if (begin > end) {
+            return false;
+        }
+        uint mid = (begin + end) / 2;
+        if (numbers[mid] == number) {
+            return true;
+        } else if (numbers[mid] > number) {
+            return binarySearch(number, begin, mid - 1, numbers);
+        } else {
+            return binarySearch(number, mid + 1, end, numbers);
+        }
     }
 
     /* @notice Send the prize to one random winner if it exists otherwise send it to the a random user
