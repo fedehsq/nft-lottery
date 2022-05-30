@@ -5,14 +5,21 @@ import "hardhat/console.sol";
 
 import "./NFT.sol";
 
-/*
-Before operating the lottery, the lottery manager buys a batch of collectibles,
-and mints a Non Fungible Token (NFT) for each of them.
-A new round may only be opened by the lottery operator.
-Opening a new round is allowed the first time, when the contract has 
-been deployed, or when a previous round is finished.
-*/
 contract Lottery {
+    
+    // Ticket bought by the user
+    struct Ticket {
+        uint256[5] numbers;
+        uint256 powerball;
+        address owner;
+    }
+
+    // Collectible is represented by a tokenId and the related image url
+    struct Collectible {
+        uint256 id;
+        string image;
+    }
+
     /// Round is open
     event RoundOpened(uint256 _startingBlock, uint256 _finalBlock);
 
@@ -60,36 +67,24 @@ contract Lottery {
 
     address public manager;
     uint256 public roundDuration;
-    uint256 public endRoundBlock;
-    uint256 public kParam = 0;
-    uint256 public tokenId = 0;
+    uint256 private endRoundBlock;
+    uint256 private kParam = 0;
+    uint256 private tokenId = 0;
 
-    bool public lotteryActive;
-    bool public numbersExtracted;
-    bool public roundFinished;
+    bool private lotteryActive;
+    bool private numbersExtracted;
+    bool private roundFinished;
 
     uint256 public constant TICKET_PRICE = 1 gwei;
-    NFT public nft;
-
-    // Ticket bought by the user
-    struct Ticket {
-        uint256[5] numbers;
-        uint256 powerball;
-        address owner;
-    }
-
-    // Collectible is represented by a tokenId and the related image url
-    struct Collectible {
-        uint256 id;
-        string image;
-    }
+    
+    NFT private nft;
 
     // Mapping between the class that the collectible belongs to and the collectible
-    mapping(uint256 => Collectible[]) collectibles;
+    mapping(uint256 => Collectible[]) private collectibles;
 
-    Ticket[] public tickets;
+    Ticket[] private tickets;
 
-    Ticket public winningTicket;
+    Ticket private winningTicket;
 
     /// @notice msg.sender is the owner of the contract
     /// @param _nftAddress address of the nft contract
@@ -101,9 +96,12 @@ contract Lottery {
         roundDuration = _roundDuration;
         lotteryActive = true;
         // Open the furst new round
-        endRoundBlock = block.number + roundDuration;
+        endRoundBlock = block.number + roundDuration + 1;
         emit RoundOpened(block.number, endRoundBlock);
     }
+
+  
+        
 
     /// @notice The lottery operator can open a new round.
     /// The lottery operator can only open a new round if the previous round is finished.
@@ -171,6 +169,18 @@ contract Lottery {
         emit TokenMinted(msg.sender, tokenId, image);
     }
 
+    /// @notice Buy a random ticket.
+    function buyRandomTicket() public payable {
+        buy(
+            (block.timestamp % 69) + 1,
+            (block.difficulty % 69) + 1,
+            (block.number % 69) + 1,
+            (block.gaslimit % 69) + 1,
+            (block.basefee % 69) + 1,
+            (block.chainid % 25) + 1
+        );
+    }
+
     /// @notice The user can buy a ticket.
     /// @dev Throws unless `one`, `two`, `three`, `four`, `five`, `six` are valid numbers
     /// @dev Throws unless `msg.sender` has enough ether to buy the ticket
@@ -227,7 +237,7 @@ contract Lottery {
 
     /// @notice Generate a random int.
     /// @return A random int.
-    function generateRandomNumber(uint256 seed) public view returns (uint256) {
+    function generateRandomNumber(uint256 seed) private view returns (uint256) {
         require(
             block.number >= kParam + endRoundBlock,
             "Not enough blocks to generate random number"
@@ -351,7 +361,7 @@ contract Lottery {
     /// @param numbers The array of numbers to search in
     /// @return True if the number is in the array, false otherwise
     function binarySearch(uint256 number, uint256[5] memory numbers)
-        public
+        internal
         pure
         returns (bool)
     {
