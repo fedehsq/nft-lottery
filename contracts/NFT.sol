@@ -49,8 +49,8 @@ contract NFT is ERC721 {
                 approvedForAll[owners[_tokenId]][_from], "Not authorized"
         );
         require(_to != _from, "Cannot transfer to yourself");
-        owners[_tokenId] = _to;
         balances[owners[_tokenId]]--;
+        owners[_tokenId] = _to;
         balances[_to]++;
         emit Transfer(_from, _to, _tokenId);
     }
