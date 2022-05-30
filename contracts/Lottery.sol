@@ -23,8 +23,7 @@ contract Lottery {
     event TokenMinted(
         address _to,
         uint256 _tokenId,
-        string _image,
-        uint256 _class
+        string _image
     );
 
     /// User buys a ticket
@@ -51,8 +50,7 @@ contract Lottery {
     event PrizeAssigned(
         address _to,
         uint256 _tokenId,
-        string _image,
-        uint256 _class
+        string _image
     );
 
     event RoundFinished();
@@ -170,7 +168,7 @@ contract Lottery {
         );
         collectibles[class].push(Collectible(tokenId, image));
         nft.mint(tokenId, image);
-        emit TokenMinted(msg.sender, tokenId, image, class);
+        emit TokenMinted(msg.sender, tokenId, image);
     }
 
     /// @notice The user can buy a ticket.
@@ -335,8 +333,7 @@ contract Lottery {
                             Strings.toString(tokenId),
                             ".svg"
                         )
-                    ),
-                    classPrize
+                    )
                 );
             }
         }
