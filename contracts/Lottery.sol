@@ -20,7 +20,12 @@ contract Lottery {
     event LotteryClosed();
 
     /// Create a nft for a collectible
-    event TokenMinted(address _to, uint256 _tokenId, string _image, uint256 _class);
+    event TokenMinted(
+        address _to,
+        uint256 _tokenId,
+        string _image,
+        uint256 _class
+    );
 
     /// User buys a ticket
     event TicketBought(
@@ -43,7 +48,12 @@ contract Lottery {
         uint256 _powerball
     );
 
-    event PrizeAssigned(address _to, uint256 _tokenId, string _image, uint256 _class);
+    event PrizeAssigned(
+        address _to,
+        uint256 _tokenId,
+        string _image,
+        uint256 _class
+    );
 
     event RoundFinished();
 
@@ -149,9 +159,8 @@ contract Lottery {
             "Only the operator con do this operation"
         );
         require(lotteryActive, "Lottery is not active");
-        uint256 class = uint256((generateRandomNumber() % 8) + 1);
-        // id of the collectible is the index of the collectible in the array
         tokenId++;
+        uint256 class = (tokenId % 8) + 1;
         string memory image = string(
             abi.encodePacked(
                 COLLECTIBLES_REPO,
@@ -215,18 +224,19 @@ contract Lottery {
     /// The round is active if the current block number < endRoundBlock
     /// @return True if the round is active, false otherwise.
     function isRoundActive() public view returns (bool) {
-        return endRoundBlock >= block.number;
+        return endRoundBlock > block.number;
     }
 
     /// @notice Generate a random int.
     /// @return A random int.
-    function generateRandomNumber() public returns (uint256) {
-        kParam++;
+    function generateRandomNumber(uint256 seed) public view returns (uint256) {
+        require(
+            block.number >= kParam + endRoundBlock,
+            "Not enough blocks to generate random number"
+        );
         return
             uint256(
-                keccak256(
-                    abi.encodePacked(block.timestamp, msg.sender, kParam++)
-                )
+                keccak256(abi.encode(blockhash(kParam + endRoundBlock), seed))
             );
     }
 
@@ -245,12 +255,12 @@ contract Lottery {
         require(!roundFinished, "Round is already finished");
         require(!numbersExtracted, "Won numbers are already drawn");
 
-        uint256 one = uint256((generateRandomNumber() % 69) + 1);
-        uint256 two = uint256((generateRandomNumber() % 69) + 1);
-        uint256 three = uint256((generateRandomNumber() % 69) + 1);
-        uint256 four = uint256((generateRandomNumber() % 69) + 1);
-        uint256 five = uint256((generateRandomNumber() % 69) + 1);
-        uint256 six = uint256((generateRandomNumber() % 26) + 1);
+        uint256 one = (generateRandomNumber(1) % 69) + 1;
+        uint256 two = (generateRandomNumber(2) % 69) + 1;
+        uint256 three = (generateRandomNumber(3) % 69) + 1;
+        uint256 four = (generateRandomNumber(4) % 69) + 1;
+        uint256 five = (generateRandomNumber(5) % 69) + 1;
+        uint256 six = (generateRandomNumber(6) % 26) + 1;
         //uint256 id = one + two + three + four + five + six;
         winningTicket = Ticket(
             sortTicketNumbers(one, two, three, four, five),
@@ -292,42 +302,47 @@ contract Lottery {
             }
             if (count > 0 || powerballMatch) {
                 uint256 classPrize = getClassPrize(count, powerballMatch);
+                uint256 id = 0;
                 // if the class is empty, mint a new collectible for the winner
                 if (collectibles[classPrize].length == 0) {
                     mint();
-                    nft.transferFrom(address(this), tickets[i].owner, tokenId);
-                    emit PrizeAssigned(
-                        tickets[i].owner,
-                        tokenId,
-                        string(
-                            abi.encodePacked(
-                                COLLECTIBLES_REPO,
-                                Strings.toString(tokenId),
-                                ".svg"
-                            )
-                        ),
-                        classPrize
-                    );
-                } else {
-                    uint256 collectibleIndex = generateRandomNumber() %
-                        collectibles[classPrize].length;
-                    uint256 id = collectibles[classPrize][collectibleIndex].id;
+                    id = tokenId;
                     nft.transferFrom(address(this), tickets[i].owner, id);
-                    emit PrizeAssigned(
-                        tickets[i].owner,
-                        id,
-                        collectibles[classPrize][collectibleIndex].image,
-                        classPrize
-                    );
+                } else {
+                    uint256 collectibleIndex = tokenId %
+                        collectibles[classPrize].length;
+                    id = collectibles[classPrize][collectibleIndex].id;
+                    // check if the contract has the ability to transfer the collectible
+                    if (
+                        nft.ownerOf(id) == address(this) ||
+                        nft.getApproved(id) == address(this) ||
+                        nft.isApprovedForAll(nft.ownerOf(id), address(this))
+                    ) {
+                        nft.transferFrom(address(this), tickets[i].owner, id);
+                    } else {
+                        // mint a new collectible for the winner
+                        mint();
+                        id = tokenId;
+                        nft.transferFrom(address(this), tickets[i].owner, id);
+                    }
                 }
+                emit PrizeAssigned(
+                    tickets[i].owner,
+                    id,
+                    string(
+                        abi.encodePacked(
+                            COLLECTIBLES_REPO,
+                            Strings.toString(tokenId),
+                            ".svg"
+                        )
+                    ),
+                    classPrize
+                );
             }
         }
 
-        // Send the prize to one user in a random way
-        uint256 winnerIndex = generateRandomNumber() % tickets.length;
-        payable(tickets[winnerIndex].owner).transfer(
-            tickets.length * TICKET_PRICE
-        );
+        // Send the tickets cash to the owner
+        payable(manager).transfer(tickets.length * TICKET_PRICE);
 
         roundFinished = true;
         //sendCoin();
@@ -338,7 +353,11 @@ contract Lottery {
     /// @param number The number to search for
     /// @param numbers The array of numbers to search in
     /// @return True if the number is in the array, false otherwise
-    function binarySearch(uint256 number, uint256[5] memory numbers) public pure returns (bool) {
+    function binarySearch(uint256 number, uint256[5] memory numbers)
+        public
+        pure
+        returns (bool)
+    {
         uint256 left = 0;
         uint256 right = numbers.length - 1;
         while (left <= right) {
@@ -355,23 +374,6 @@ contract Lottery {
         }
         return false;
     }
-
-    /* @notice Send the prize to one random winner if it exists otherwise send it to the a random user
-    function sendCoin() internal {
-        if (winners.length > 0) {
-            // Send the prize to one winner in a random way
-            uint256 winnerIndex = generateRandomNumber() % winners.length;
-            payable(winners[winnerIndex]).transfer(
-                tickets.length * TICKET_PRICE
-            );
-        } else {
-            // Send the prize to one user in a random way
-            uint256 winnerIndex = generateRandomNumber() % tickets.length;
-            payable(tickets[winnerIndex].owner).transfer(
-                tickets.length * TICKET_PRICE
-            );
-        }
-    } */
 
     /// @notice Get the class prize of the current lottery round based on the number of matching numbers
     /// @param _count The number of matching numbers
