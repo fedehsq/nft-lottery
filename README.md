@@ -9,4 +9,4 @@ The lottery logic must be implemented with a Solidity smart contract on the Ethe
 Before  operating the lottery, the lottery manager buys a batch of collectibles, and mints a Non Fungible Token (NFT) for each of them. \
 Each lottery’s winner may receive as a prize one of these collectibles.
 
-For more info read [nft_lottery.pdf]("./nft_lottery.pdf") and [FinalTermBlockchain.pdf]("./FinalTermBlockchain.pdf")
+For more info read [nft_lottery.pdf]("./nft_lottery.pdf") and [FinalTermBlockchain.pdf](./FinalTermBlockchain.pdf)
