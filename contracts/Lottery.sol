@@ -5,14 +5,20 @@ import "hardhat/console.sol";
 
 import "./NFT.sol";
 
-/*
-Before operating the lottery, the lottery manager buys a batch of collectibles,
-and mints a Non Fungible Token (NFT) for each of them.
-A new round may only be opened by the lottery operator.
-Opening a new round is allowed the first time, when the contract has 
-been deployed, or when a previous round is finished.
-*/
 contract Lottery {
+    // Ticket bought by the user
+    struct Ticket {
+        uint256[5] numbers;
+        uint256 powerball;
+        address owner;
+    }
+
+    // Collectible is represented by a tokenId and the related image url
+    struct Collectible {
+        uint256 id;
+        string image;
+    }
+
     /// Round is open
     event RoundOpened(uint256 _startingBlock, uint256 _finalBlock);
 
@@ -20,11 +26,7 @@ contract Lottery {
     event LotteryClosed();
 
     /// Create a nft for a collectible
-    event TokenMinted(
-        address _to,
-        uint256 _tokenId,
-        string _image
-    );
+    event TokenMinted(address _to, uint256 _tokenId, string _image);
 
     /// User buys a ticket
     event TicketBought(
@@ -47,11 +49,7 @@ contract Lottery {
         uint256 _powerball
     );
 
-    event PrizeAssigned(
-        address _to,
-        uint256 _tokenId,
-        string _image
-    );
+    event PrizeAssigned(address _to, uint256 _tokenId, string _image);
 
     event RoundFinished();
 
@@ -60,36 +58,24 @@ contract Lottery {
 
     address public manager;
     uint256 public roundDuration;
-    uint256 public endRoundBlock;
-    uint256 public kParam = 0;
-    uint256 public tokenId = 0;
+    uint256 private endRoundBlock;
+    uint256 private kParam = 0;
+    uint256 private tokenId = 0;
 
-    bool public lotteryActive;
-    bool public numbersExtracted;
-    bool public roundFinished;
+    bool private lotteryActive;
+    bool private numbersExtracted;
+    bool private roundFinished;
 
-    uint256 public constant TICKET_PRICE = 1 gwei;
-    NFT public nft;
+    uint256 public constant TICKET_PRICE = 1 ether;
 
-    // Ticket bought by the user
-    struct Ticket {
-        uint256[5] numbers;
-        uint256 powerball;
-        address owner;
-    }
-
-    // Collectible is represented by a tokenId and the related image url
-    struct Collectible {
-        uint256 id;
-        string image;
-    }
+    NFT private nft;
 
     // Mapping between the class that the collectible belongs to and the collectible
-    mapping(uint256 => Collectible[]) collectibles;
+    mapping(uint256 => Collectible[]) private collectibles;
 
-    Ticket[] public tickets;
+    Ticket[] private tickets;
 
-    Ticket public winningTicket;
+    Ticket private winningTicket;
 
     /// @notice msg.sender is the owner of the contract
     /// @param _nftAddress address of the nft contract
@@ -101,7 +87,7 @@ contract Lottery {
         roundDuration = _roundDuration;
         lotteryActive = true;
         // Open the furst new round
-        endRoundBlock = block.number + roundDuration;
+        endRoundBlock = block.number + roundDuration + 1;
         emit RoundOpened(block.number, endRoundBlock);
     }
 
@@ -123,7 +109,7 @@ contract Lottery {
         delete winningTicket;
         roundFinished = false;
         numbersExtracted = false;
-        endRoundBlock = block.number + roundDuration;
+        endRoundBlock = block.number + roundDuration + 1;
         emit RoundOpened(block.number, endRoundBlock);
     }
 
@@ -144,6 +130,14 @@ contract Lottery {
         }
         lotteryActive = false;
         emit LotteryClosed();
+    }
+
+    /// @notice The lottery operator mints n nft.
+    /// @param nToken the number of nft to mint
+    function mintNtoken(uint256 nToken) public {
+        for (uint256 i = 0; i < nToken; i++) {
+            mint();
+        }
     }
 
     /// @notice The lottery operator can mint new token.
@@ -171,6 +165,53 @@ contract Lottery {
         emit TokenMinted(msg.sender, tokenId, image);
     }
 
+    /// @notice Buy 'random' tickets.
+    /// @param nTickets Number of tickets to buy
+    function buyNRandomTicket(uint256 nTickets) public payable {
+        require(lotteryActive, "Lottery is not active");
+        require(isRoundActive(), "Round is not active");
+        require(
+            msg.value == TICKET_PRICE * nTickets,
+            "You need to send n ether"
+        );
+        for (uint256 i = 0; i < nTickets; i++) {
+            uint256 _one = ((i + 1) % 69) + 1;
+            uint256 _two = ((i + 2) % 69) + 1;
+            uint256 _three = ((i + 3) % 69) + 1;
+            uint256 _four = ((i + 4) % 69) + 1;
+            uint256 _five = (i + 5) % 69 + 1;
+            uint256 _powerball = (i + 6) % 25 + 1;
+            tickets.push(
+                Ticket(
+                    sortTicketNumbers(_one, _two, _three, _four, _five),
+                    _powerball,
+                    msg.sender
+                )
+            );
+            emit TicketBought(
+                msg.sender,
+                _one,
+                _two,
+                _three,
+                _four,
+                _five,
+                _powerball
+            );
+        }
+    }
+
+    /// @notice Buy a 'random' ticket.
+    function buyRandomTicket() public payable {
+        buy(
+            (block.timestamp % 69) + 1,
+            (block.difficulty % 69) + 1,
+            (block.number % 69) + 1,
+            (block.gaslimit % 69) + 1,
+            (block.basefee % 69) + 1,
+            (block.chainid % 25) + 1
+        );
+    }
+
     /// @notice The user can buy a ticket.
     /// @dev Throws unless `one`, `two`, `three`, `four`, `five`, `six` are valid numbers
     /// @dev Throws unless `msg.sender` has enough ether to buy the ticket
@@ -192,7 +233,7 @@ contract Lottery {
     ) public payable {
         require(lotteryActive, "Lottery is not active");
         require(isRoundActive(), "Round is not active");
-        require(msg.value == TICKET_PRICE, "You need to send 1 gwei");
+        require(msg.value == TICKET_PRICE, "You need to send 1 ether");
         require(_one >= 1 && _one <= 69, "Invalid number");
         require(_two >= 1 && _two <= 69, "Invalid number");
         require(_three >= 1 && _three <= 69, "Invalid number");
@@ -227,7 +268,7 @@ contract Lottery {
 
     /// @notice Generate a random int.
     /// @return A random int.
-    function generateRandomNumber(uint256 seed) public view returns (uint256) {
+    function generateRandomNumber(uint256 seed) private view returns (uint256) {
         require(
             block.number >= kParam + endRoundBlock,
             "Not enough blocks to generate random number"
@@ -346,12 +387,86 @@ contract Lottery {
         emit RoundFinished();
     }
 
+    /// @notice Distribute the prizes of the current lottery round
+    /// @dev Throws unless `msg.sender` is the lottery operator
+    /// @dev Throws unless `winner` is not defined
+    /// @dev Throws unless `winningTicket` is already drawn
+    /// @dev Throws unless the lottery is active
+    function givePrizesSlow() public {
+        require(
+            msg.sender == manager,
+            "Only the operator con do this operation"
+        );
+        require(lotteryActive, "Lottery is not active");
+        require(!isRoundActive(), "Round is not yet finished");
+        require(numbersExtracted, "Won numbers are not drawn");
+        require(!roundFinished, "Round is already finished");
+        for (uint256 i = 0; i < tickets.length; i++) {
+            // Check how many numbers count the winning ticket numbers
+            uint256 count = 0;
+            bool powerballMatch = false;
+            for (uint256 j = 0; j < 5; j++) {
+                if (counter(tickets[i].numbers[j], winningTicket.numbers)) {
+                    count++;
+                }
+                // Check if the powerball matches the winning ticket powerball
+                if (tickets[i].powerball == winningTicket.powerball) {
+                    powerballMatch = true;
+                }
+            }
+            if (count > 0 || powerballMatch) {
+                uint256 classPrize = getClassPrize(count, powerballMatch);
+                uint256 id = 0;
+                // if the class is empty, mint a new collectible for the winner
+                if (collectibles[classPrize].length == 0) {
+                    mint();
+                    id = tokenId;
+                    nft.transferFrom(address(this), tickets[i].owner, id);
+                } else {
+                    uint256 collectibleIndex = tokenId %
+                        collectibles[classPrize].length;
+                    id = collectibles[classPrize][collectibleIndex].id;
+                    // check if the contract has the ability to transfer the collectible
+                    if (
+                        nft.ownerOf(id) == address(this) ||
+                        nft.getApproved(id) == address(this) ||
+                        nft.isApprovedForAll(nft.ownerOf(id), address(this))
+                    ) {
+                        nft.transferFrom(address(this), tickets[i].owner, id);
+                    } else {
+                        // mint a new collectible for the winner
+                        mint();
+                        id = tokenId;
+                        nft.transferFrom(address(this), tickets[i].owner, id);
+                    }
+                }
+                emit PrizeAssigned(
+                    tickets[i].owner,
+                    id,
+                    string(
+                        abi.encodePacked(
+                            COLLECTIBLES_REPO,
+                            Strings.toString(tokenId),
+                            ".svg"
+                        )
+                    )
+                );
+            }
+        }
+
+        // Send the tickets cash to the owner
+        payable(manager).transfer(tickets.length * TICKET_PRICE);
+
+        roundFinished = true;
+        emit RoundFinished();
+    }
+
     /// @notice Binary search to find if a number is in an array of numbers
     /// @param number The number to search for
     /// @param numbers The array of numbers to search in
     /// @return True if the number is in the array, false otherwise
     function binarySearch(uint256 number, uint256[5] memory numbers)
-        public
+        internal
         pure
         returns (bool)
     {
@@ -371,6 +486,17 @@ contract Lottery {
         }
         return false;
     }
+
+    function counter(uint256 number, uint256[5] memory numbers) internal
+        pure
+        returns (bool) {
+            for (uint256 k = 0; k < numbers.length; k++) {
+                if (number == numbers[k]) {
+                    return true;
+                }
+            }
+            return false;
+        }
 
     /// @notice Get the class prize of the current lottery round based on the number of matching numbers
     /// @param _count The number of matching numbers
