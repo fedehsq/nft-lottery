@@ -168,8 +168,6 @@ contract Lottery {
     /// @notice Buy 'random' tickets.
     /// @param nTickets Number of tickets to buy
     function buyNRandomTicket(uint256 nTickets) public payable {
-        require(lotteryActive, "Lottery is not active");
-        require(isRoundActive(), "Round is not active");
         require(
             msg.value == TICKET_PRICE * nTickets,
             "You need to send n ether"
@@ -179,37 +177,10 @@ contract Lottery {
             uint256 _two = ((i + 2) % 69) + 1;
             uint256 _three = ((i + 3) % 69) + 1;
             uint256 _four = ((i + 4) % 69) + 1;
-            uint256 _five = (i + 5) % 69 + 1;
-            uint256 _powerball = (i + 6) % 25 + 1;
-            tickets.push(
-                Ticket(
-                    sortTicketNumbers(_one, _two, _three, _four, _five),
-                    _powerball,
-                    msg.sender
-                )
-            );
-            emit TicketBought(
-                msg.sender,
-                _one,
-                _two,
-                _three,
-                _four,
-                _five,
-                _powerball
-            );
+            uint256 _five = ((i + 5) % 69) + 1;
+            uint256 _powerball = ((i + 6) % 25) + 1;
+            buyTicket(_one, _two, _three, _four, _five, _powerball);
         }
-    }
-
-    /// @notice Buy a 'random' ticket.
-    function buyRandomTicket() public payable {
-        buy(
-            (block.timestamp % 69) + 1,
-            (block.difficulty % 69) + 1,
-            (block.number % 69) + 1,
-            (block.gaslimit % 69) + 1,
-            (block.basefee % 69) + 1,
-            (block.chainid % 25) + 1
-        );
     }
 
     /// @notice The user can buy a ticket.
@@ -217,6 +188,7 @@ contract Lottery {
     /// @dev Throws unless `msg.sender` has enough ether to buy the ticket
     /// @dev Throws unless `ticket` is unique
     /// @dev Throws unless the lottery is active
+    /// @dev Throws unless the numbers are different one from each other
     /// @param _one The first number of the ticket
     /// @param _two The second number of the ticket
     /// @param _three The third number of the ticket
@@ -231,23 +203,44 @@ contract Lottery {
         uint256 _five,
         uint256 _powerball
     ) public payable {
+        require(msg.value == TICKET_PRICE, "You need to send 1 ether");
+        buyTicket(_one, _two, _three, _four, _five, _powerball);
+    }
+
+    /// @notice Create a ticket.
+    function buyTicket(
+        uint256 _one,
+        uint256 _two,
+        uint256 _three,
+        uint256 _four,
+        uint256 _five,
+        uint256 _powerball
+    ) internal {
         require(lotteryActive, "Lottery is not active");
         require(isRoundActive(), "Round is not active");
-        require(msg.value == TICKET_PRICE, "You need to send 1 ether");
         require(_one >= 1 && _one <= 69, "Invalid number");
         require(_two >= 1 && _two <= 69, "Invalid number");
         require(_three >= 1 && _three <= 69, "Invalid number");
         require(_four >= 1 && _four <= 69, "Invalid number");
         require(_five >= 1 && _five <= 69, "Invalid number");
         require(_powerball >= 1 && _powerball <= 26, "Invalid number");
-        //uint256 id = _one + _two + _three + _four + _five + _powerball;
-        tickets.push(
-            Ticket(
-                sortTicketNumbers(_one, _two, _three, _four, _five),
-                _powerball,
-                msg.sender
-            )
+        require(
+            _one != _powerball &&
+                _two != _powerball &&
+                _three != _powerball &&
+                _four != _powerball &&
+                _five != _powerball,
+            "Numbers must be different one from each other"
         );
+        uint256[5] memory ticketNumbers = sortTicketNumbers(
+            _one,
+            _two,
+            _three,
+            _four,
+            _five
+        );
+        checkOrderedNumbers(ticketNumbers);
+        tickets.push(Ticket(ticketNumbers, _powerball, msg.sender));
         emit TicketBought(
             msg.sender,
             _one,
@@ -334,10 +327,10 @@ contract Lottery {
                 ) {
                     count++;
                 }
-                // Check if the powerball matches the winning ticket powerball
-                if (tickets[i].powerball == winningTicket.powerball) {
-                    powerballMatch = true;
-                }
+            }
+            // Check if the powerball matches the winning ticket powerball
+            if (tickets[i].powerball == winningTicket.powerball) {
+                powerballMatch = true;
             }
             if (count > 0 || powerballMatch) {
                 uint256 classPrize = getClassPrize(count, powerballMatch);
@@ -387,80 +380,6 @@ contract Lottery {
         emit RoundFinished();
     }
 
-    /// @notice Distribute the prizes of the current lottery round
-    /// @dev Throws unless `msg.sender` is the lottery operator
-    /// @dev Throws unless `winner` is not defined
-    /// @dev Throws unless `winningTicket` is already drawn
-    /// @dev Throws unless the lottery is active
-    function givePrizesSlow() public {
-        require(
-            msg.sender == manager,
-            "Only the operator con do this operation"
-        );
-        require(lotteryActive, "Lottery is not active");
-        require(!isRoundActive(), "Round is not yet finished");
-        require(numbersExtracted, "Won numbers are not drawn");
-        require(!roundFinished, "Round is already finished");
-        for (uint256 i = 0; i < tickets.length; i++) {
-            // Check how many numbers count the winning ticket numbers
-            uint256 count = 0;
-            bool powerballMatch = false;
-            for (uint256 j = 0; j < 5; j++) {
-                if (counter(tickets[i].numbers[j], winningTicket.numbers)) {
-                    count++;
-                }
-                // Check if the powerball matches the winning ticket powerball
-                if (tickets[i].powerball == winningTicket.powerball) {
-                    powerballMatch = true;
-                }
-            }
-            if (count > 0 || powerballMatch) {
-                uint256 classPrize = getClassPrize(count, powerballMatch);
-                uint256 id = 0;
-                // if the class is empty, mint a new collectible for the winner
-                if (collectibles[classPrize].length == 0) {
-                    mint();
-                    id = tokenId;
-                    nft.transferFrom(address(this), tickets[i].owner, id);
-                } else {
-                    uint256 collectibleIndex = tokenId %
-                        collectibles[classPrize].length;
-                    id = collectibles[classPrize][collectibleIndex].id;
-                    // check if the contract has the ability to transfer the collectible
-                    if (
-                        nft.ownerOf(id) == address(this) ||
-                        nft.getApproved(id) == address(this) ||
-                        nft.isApprovedForAll(nft.ownerOf(id), address(this))
-                    ) {
-                        nft.transferFrom(address(this), tickets[i].owner, id);
-                    } else {
-                        // mint a new collectible for the winner
-                        mint();
-                        id = tokenId;
-                        nft.transferFrom(address(this), tickets[i].owner, id);
-                    }
-                }
-                emit PrizeAssigned(
-                    tickets[i].owner,
-                    id,
-                    string(
-                        abi.encodePacked(
-                            COLLECTIBLES_REPO,
-                            Strings.toString(tokenId),
-                            ".svg"
-                        )
-                    )
-                );
-            }
-        }
-
-        // Send the tickets cash to the owner
-        payable(manager).transfer(tickets.length * TICKET_PRICE);
-
-        roundFinished = true;
-        emit RoundFinished();
-    }
-
     /// @notice Binary search to find if a number is in an array of numbers
     /// @param number The number to search for
     /// @param numbers The array of numbers to search in
@@ -486,17 +405,6 @@ contract Lottery {
         }
         return false;
     }
-
-    function counter(uint256 number, uint256[5] memory numbers) internal
-        pure
-        returns (bool) {
-            for (uint256 k = 0; k < numbers.length; k++) {
-                if (number == numbers[k]) {
-                    return true;
-                }
-            }
-            return false;
-        }
 
     /// @notice Get the class prize of the current lottery round based on the number of matching numbers
     /// @param _count The number of matching numbers
@@ -567,5 +475,20 @@ contract Lottery {
             }
         }
         return numbers;
+    }
+
+    /// @notice Check if the numbers are different from each other
+    /// @param _orderedNumbers The ordered numbers
+    /// @dev Throws if the numbers are the same
+    function checkOrderedNumbers(uint256[5] memory _orderedNumbers)
+        internal
+        pure
+    {
+        for (uint256 i = 0; i < _orderedNumbers.length - 1; i++) {
+            require(
+                _orderedNumbers[i] != _orderedNumbers[i + 1],
+                "Numbers are equals"
+            );
+        }
     }
 }
