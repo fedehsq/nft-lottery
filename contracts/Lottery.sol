@@ -3,7 +3,7 @@ pragma solidity >=0.4.22 <0.9.0;
 import "@openzeppelin/contracts/utils/Strings.sol";
 import "hardhat/console.sol";
 
-import "./NFT.sol";
+import "./ONFT.sol";
 
 contract Lottery {
     // Ticket bought by the user
@@ -68,7 +68,7 @@ contract Lottery {
 
     uint256 public constant TICKET_PRICE = 1 ether;
 
-    NFT private nft;
+    ONFT private nft;
 
     // Mapping between the class that the collectible belongs to and the collectible
     mapping(uint256 => Collectible[]) private collectibles;
@@ -83,7 +83,7 @@ contract Lottery {
     constructor(address _nftAddress, uint256 _roundDuration) payable {
         require(_roundDuration < 1000, "Round duration must be less than 1000");
         manager = msg.sender;
-        nft = NFT(_nftAddress);
+        nft = ONFT(_nftAddress);
         roundDuration = _roundDuration;
         lotteryActive = true;
         // Open the furst new round
@@ -339,7 +339,7 @@ contract Lottery {
                 if (collectibles[classPrize].length == 0) {
                     mint();
                     id = tokenId;
-                    nft.transferFrom(address(this), tickets[i].owner, id);
+                    nft.safeTransferFrom(address(this), tickets[i].owner, id);
                 } else {
                     uint256 collectibleIndex = tokenId %
                         collectibles[classPrize].length;
@@ -350,12 +350,12 @@ contract Lottery {
                         nft.getApproved(id) == address(this) ||
                         nft.isApprovedForAll(nft.ownerOf(id), address(this))
                     ) {
-                        nft.transferFrom(address(this), tickets[i].owner, id);
+                        nft.safeTransferFrom(address(this), tickets[i].owner, id);
                     } else {
                         // mint a new collectible for the winner
                         mint();
                         id = tokenId;
-                        nft.transferFrom(address(this), tickets[i].owner, id);
+                        nft.safeTransferFrom(address(this), tickets[i].owner, id);
                     }
                 }
                 emit PrizeAssigned(
