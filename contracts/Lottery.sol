@@ -293,7 +293,6 @@ contract Lottery {
         uint256 four = (generateRandomNumber(4) % 69) + 1;
         uint256 five = (generateRandomNumber(5) % 69) + 1;
         uint256 six = (generateRandomNumber(6) % 26) + 1;
-        //uint256 id = one + two + three + four + five + six;
         winningTicket = Ticket(
             sortTicketNumbers(one, two, three, four, five),
             six,
@@ -376,7 +375,6 @@ contract Lottery {
         payable(manager).transfer(tickets.length * TICKET_PRICE);
 
         roundFinished = true;
-        //sendCoin();
         emit RoundFinished();
     }
 
